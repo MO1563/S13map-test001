@@ -437,7 +437,11 @@
     <div id="sidebarResizeHandle" title="ドラッグして横幅を調整"></div>
     <div class="brand">
       <h1>領地管理マップ</h1>
-      <p>一族の配置と割り当て地の可視化　<span style="opacity:.6; font-size:11px;">版 10/28-17時</span></p>
+      <p>一族の配置と割り当て地の可視化　<span style="opacity:.6; font-size:11px;">版 10/28-18時</span></p>
+      <div id="publishInfo" style="display:none; margin-top:8px; font-size:11.5px; color:var(--text-dim); line-height:1.6;">
+        公開データ: <b id="publishDate" style="color:var(--accent-2);"></b>
+        <button type="button" id="refreshPublishedBtn" style="display:block; width:100%; margin-top:6px; padding:8px; font-size:12.5px; border-radius:6px; cursor:pointer; background:var(--accent); color:#fff; border:none;">🔄 最新の公開データを表示する</button>
+      </div>
     </div>
 
     <div class="modes">
@@ -1486,6 +1490,7 @@
       <button type="button" data-layer="vacant">空きのみ</button>
       <button type="button" id="cornerToggle" title="区画の角のマス座標を表示" style="border-left:2px solid var(--line);">角座標</button>
     </div>
+    <button type="button" id="refreshPublishedMapBtn" title="このブラウザに残っている古いデータを消して、最新の公開データを表示します" style="display:none; position:absolute; left:14px; bottom:64px; z-index:7; padding:8px 12px; font-size:12.5px; border-radius:8px; cursor:pointer; background:rgba(20,24,26,.92); color:var(--accent-2); border:1px solid var(--accent-2);">🔄 最新データを表示</button>
     <div id="mapSearch">
       <span class="icon">🔍</span>
       <input type="search" id="mapSearchInput" placeholder="名前・区画名で検索（例: 肥後 / qp-12）" autocomplete="off">
@@ -1904,7 +1909,9 @@
     clearTimeout(saveTimer);
     saveTimer = setTimeout(doSave, 400);
   }
+  let blockSave = false; // 「最新の公開データを表示」で保存データを消した直後は保存しない
   async function doSave() {
+    if (blockSave) return;
     const payload = JSON.stringify({
       members: state.members,
       groups: state.groups,
@@ -5652,6 +5659,28 @@
     });
   }
 
+  // ---------------- 公開ページ：古いデータを消して最新の公開データを表示 ----------------
+  function setupPublishedRefresh(stamp) {
+    const d = new Date(stamp);
+    const label = isNaN(d) ? "" : d.toLocaleString("ja-JP", { year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", minute: "2-digit" }) + " 書き出し";
+    document.getElementById("publishDate").textContent = label;
+    document.getElementById("publishInfo").style.display = "block";
+    document.getElementById("refreshPublishedMapBtn").style.display = "block";
+    const run = async () => {
+      if (!confirm("この端末に残っている地図のデータを消して、最新の公開データを読み込み直します。\n（この端末で地図に加えた変更は消えます）\n\nよろしいですか？")) return;
+      blockSave = true;
+      clearTimeout(saveTimer);
+      try { localStorage.removeItem(STORAGE_KEY); } catch (e) {}
+      if (HAS_SHARED_STORAGE) { try { await window.storage.delete(STORAGE_KEY, true); } catch (e) {} }
+      // ブラウザが古いページを覚えていても新しいページを取り直すよう、アドレスに目印を付けて開き直す
+      const u = new URL(location.href);
+      u.searchParams.set("r", Date.now().toString(36));
+      location.replace(u.toString());
+    };
+    document.getElementById("refreshPublishedBtn").onclick = run;
+    document.getElementById("refreshPublishedMapBtn").onclick = run;
+  }
+
   // ---------------- Init ----------------
   (async function init() {
     // GitHub公開用に書き出された場合、ここに埋め込まれたスナップショット/データを初期値として読み込む
@@ -5672,6 +5701,7 @@
 
     try {
       const loaded = await loadState();
+      if (seedStamp) setupPublishedRefresh(seedStamp);
       if (seedStamp && (!loaded || loaded.seedPublishedAt !== seedStamp)) {
         // 公開用ファイルが新しく書き出されたもの：このブラウザに残っている前のデータではなく、埋め込まれた最新データを表示する
         state.seedPublishedAt = seedStamp;
